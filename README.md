@@ -1,8 +1,6 @@
 # RMBL_NICHE-Niche-Dynamics-Analysis
 A basic analysis of plant-pollinator interaction niche dynamics and bloom abundance using the RMBL QNEST data
 
-Welcome to the RMBL_NICHE-Niche-Dynamics-Analysis wiki!
-
 The code name for files associated with this project is "RMBL_NICHE" -- all files that I generated as part of this project have that prefix for quick searching
 
 Here's some basic information about the project
