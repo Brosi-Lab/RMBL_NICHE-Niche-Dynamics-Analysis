@@ -2,19 +2,14 @@
 title: "NICHE_RMBL-Niche-Dynamics-Analysis"
 author: "Beth Morrison"
 date: "April 9, 2020"
-output: html_document
----
-
----
-title: "RMBL_NICHE_v4"
-author: "Beth Morrison"
-date: "4/2/2020"
-output: html_document
+output:
+  prettydoc::html_pretty:
+    highlight: github
 ---
 
 # Libraries
 
-```{r}
+```{r message = FALSE, warning = FALSE}
 
 library(vegan)
 library(bipartite)
@@ -275,7 +270,7 @@ The data we will need to answer the above three questions:
   
 ## Let's start with observed and estimated visitor richness
 
-```{r}
+```{r message = FALSE, warning = FALSE}
 
 ## one note about iNEXT which are are using for visitor richness estimation is that it does not like species that only have a single observation (because there are too few observations to make any sort of extrapolation). So, for every plant species that only has one interaction observation it will throw a warning that says "Estimation is not robust" and the estimated value of visitor richness is the same as the observed value of visitor richness (so, it's 1)
 
