@@ -1,0 +1,203 @@
+---
+title: "RMBL_NICHE-QNEST-Data-Clean"
+author: "Beth Morrison"
+date: "April 9, 2020"
+output:
+  prettydoc::html_pretty:
+    highlight: github
+---
+
+# Data
+
+The datasets cleaned in ths code are the QNEST bloom and plant-pollinator interaction data
+
+These data are the "KCAqnest_network_observations_RMBL_2019_RAW.csv" (interaction observations)
+"qnest_plant_RMBL_2017_RAW.csv" (qnest bloom data for 2017)
+"qnest_plant_RMBL_2016_RAW.csv" (qnest bloom data for 2016)
+"qnest_plant_RMBL_2019_RAW.csv" (qnest bloom data for 2018 and 2019)
+
+The files are on drop box and DO NOT HAVE THE `_RAW` SUFFIX -- I added that myself when I downloaded the data to my local as it is my preference to denote raw datasets. But, when you download the data from dropbox you can call them anything you want, just make sure your new name matches the R code in the file name argument of `read.csv`. 
+
+The niche dyanmics analysis that uses the objects created in this code is in the `RMBL_NICHE-Niche-Dynamics-Analysis` file
+
+# Libraries
+
+```{r message = FALSE, warning = FALSE}
+
+library(vegan)
+library(bipartite)
+library(stringr)
+library(vegan)
+library(spaa)
+
+```
+
+# Data
+
+Interaction observations
+
+```{r}
+
+raw.ds <- read.csv(file = "KCAqnest_network_observations_RMBL_2019_RAW.csv", head = T, stringsAsFactors = F)
+
+```
+
+Bloom observations
+
+```{r}
+
+t1 <- read.csv(file = "qnest_plant_RMBL_2019_RAW.csv", head = T)
+t2 <- read.csv(file = "qnest_plant_RMBL_2017_RAW.csv", head = T)
+t3 <- read.csv(file = "qnest_plants_RMBL_2016_RAW.csv", head = T)
+
+t1 <- t1[ ,c(1:6)]
+t2 <- t2[ ,c(1:6)]
+t3 <- t3[ ,c(1:6)]
+
+colnames(t1) ## date site transect segment plant total_flowers
+colnames(t2) ## date site transect segment plant_name total_flowers
+colnames(t3) ## date site transect segment plant_name total_flowers
+
+colnames(t1)[5] <- 'plant_name'
+
+t2 <- t2[which(t2$site != ""), ]
+length(unique(t2$site))
+
+raw.bloom.ds <- rbind(t3, t2, t1)
+
+raw.bloom.ds$site <- droplevels(raw.bloom.ds$site)
+
+```
+## Interaction observations data cleaning
+
+Checking for weird data and typos
+
+```{r}
+
+table(raw.ds$date) ## some are lower than I would think, but is that intentional? hard to say... 
+table(raw.ds$site) ## G0thic Town
+table(raw.ds$who) ## don't really care I guess
+table(raw.ds$transect) ## p4 and p6 have only one, some are blank
+table(raw.ds$segment) ## looks good
+table(raw.ds$vial_number) ## lots, do I care?
+table(raw.ds$gross_ID) ## two blank, thrip? should include? Unknown? should remove, should also group the bombus, no? Given the coarse levels for other groups, bombyliidae and bombilidae, Other Fly and Other fly , Big megachile and Big Megachile
+table(raw.ds$plant) ## four blank, Hymenoxys hoopesii, HYmenoxys hoopesii
+table(raw.ds$em_morpho) ## not sure if i need this information
+table(raw.ds$fine_ID) ## 7778 blank!
+
+```
+
+Updating weird data and typos
+
+```{r}
+
+raw.ds1 <- raw.ds
+
+raw.ds1$site[which(raw.ds1$site == 'GOthic Town')] <- 'Gothic Town'
+# raw.ds1$site <- droplevels(raw.ds1$site)
+
+raw.ds1 <- raw.ds1[which(raw.ds1$gross_ID != ""), ]
+raw.ds1$gross_ID[which(raw.ds1$gross_ID == "Big Megachile")] <- 'Big megachile'
+raw.ds1$gross_ID[which(raw.ds1$gross_ID == levels(raw.ds$gross_ID)[8])] <- 'Bombyliidae'
+raw.ds1$gross_ID[which(raw.ds1$gross_ID == "Other Fly")] <- 'Other fly'
+raw.ds1$gross_ID[which(raw.ds1$gross_ID == "Other fly ")] <- 'Other fly'
+raw.ds1 <- raw.ds1[which(raw.ds1$gross_ID != "Thrip"), ]
+raw.ds1 <- raw.ds1[which(raw.ds1$gross_ID != "Unknown"), ]
+#raw.ds1$gross_ID <- droplevels(raw.ds1$gross_ID)
+
+raw.ds1 <- raw.ds1[which(raw.ds1$plant != ""), ]
+raw.ds1$plant[which(raw.ds1$plant == "HYmenoxys hoopesii")] <- "Hymenoxys hoopesii"
+#raw.ds1$plant <- droplevels(raw.ds1$plant)
+
+table(raw.ds1$site) ## looks good
+table(raw.ds1$gross_ID) ## looks good
+table(raw.ds1$plant) ## looks good too
+
+raw.ds1$betterdate <- as.Date(raw.ds1$date, format = "%m/%d/%y")
+
+nrow(raw.ds1) # 8097 interactions
+
+colnames(raw.ds1)
+unique(raw.ds1$betterdate) ## 4 years
+
+```
+
+This is kind of an aside but I pull out all the interactions that just include bombus, incase you ever wanted to look at Bombus exclusively, since currently the bombus data are the most well resolved
+
+```{r}
+
+## still need to group all of the Bombus
+
+raw.ds1$gross_ID <- as.character(raw.ds1$gross_ID)
+raw.ds1$gross_ID[which(str_detect(raw.ds1$gross_ID, "Bombus"))] <- "Bombus"
+table(raw.ds1$gross_ID) ## okay now all the bombus are one
+
+bombus.ds <- raw.ds[which(str_detect(raw.ds$gross_ID, "Bombus")), ]
+#bombus.ds$gross_ID <- droplevels(bombus.ds$gross_ID)
+bombus.ds$gross_ID <- as.character(bombus.ds$gross_ID)
+bombus.ds <- bombus.ds[which(bombus.ds$plant != ''), ]
+#bombus.ds$plant <- droplevels(bombus.ds$plant)
+#bombus.ds$site <- droplevels(bombus.ds$site)
+bombus.ds$betterdate <- as.Date(bombus.ds$date, format = "%m/%d/%y")
+
+```
+
+## Bloom data cleaning
+
+Looking for weird data and typos
+
+```{r}
+
+table(raw.bloom.ds$date) ## dates look good
+table(raw.bloom.ds$site) ## good 
+table(raw.bloom.ds$transect) ## some blanks to remove
+table(raw.bloom.ds$segment) ## also look good as far as I can tell
+sort(names(table(raw.bloom.ds$plant))) ##  
+table(raw.bloom.ds$total_flowers) ## nothing immediately shocking but we shall see
+
+```
+
+Fixing weird data and typos
+
+```{r}
+
+raw.bloom.ds$plant <- as.character(raw.bloom.ds$plant)
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$transect != ""), ]
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == "Agoseris  glauca")] <- "Agoseris glauca"
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != "Antemeria White"), ]
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != ""), ]
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == "Aquilegia coerulea")] <- "Aquilegia caerulea"
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != "Arnica? "), ]
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != "Big Yellow Bushy Flowers"), ]
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == "Potentilla gracilis")] <- "Potentilla pulcherrima"
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Bochera stricta')] <- 'Boechera stricta'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Fringed brassica ')] <- 'Fringed Brassica'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'lathyrus leucanthus')] <- 'Lathyrus leucanthus'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Fringed brassica ')] <- 'Fringed Brassica'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Linum Lewisii')] <- 'Linum lewisii'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'LInum lewisii')] <- 'Linum lewisii'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Mertensia ciliata ')] <- 'Mertensia ciliata'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'penstemon whippleanus')] <- 'Penstemon whippleanus'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Potentilla fruiticosa')] <- 'Potentilla fruticosa'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Erigeron speciosa')] <- 'Erigeron speciosus'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Erigeron speciosus ')] <- 'Erigeron speciosus'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'potentilla pulcherrima')] <- 'Potentilla pulcherrima'
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != 'Snap Dragon Ask Loy!'), ] 
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != 'Thistle (Need ID)'), ] 
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'viola praemorsa')] <- 'Viola praemorsa'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Viccia americana')] <- 'Vicia americana'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Taraxacum officinale*')] <- 'Taraxacum officinale'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Thin yellow Brassica ')] <- 'Thin yellow Brassica'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'thin yellow Brassica ')] <- 'Thin yellow Brassica'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Viola  adunca')] <- 'Viola adunca'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Viola  praemorsa')] <- 'Viola praemorsa'
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != 'White aster'), ] 
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != 'Unknown'), ] 
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != '"Wallflower"'), ] 
+
+raw.bloom.ds$betterdate <- as.Date(raw.bloom.ds$date, format = "%m/%d/%y")
+
+```
+
+Now you can begin the analysis in the `RMBL-NICHE-Niche-Dyanmics-Analysis.Rmd` using the objects `raw.bloom.ds` and `raw.ds1`
+
