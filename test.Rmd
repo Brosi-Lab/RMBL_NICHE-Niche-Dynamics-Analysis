@@ -1,0 +1,809 @@
+---
+title: "NICHE_RMBL-Niche-Dynamics-Analysis"
+author: "Beth Morrison"
+date: "April 9, 2020"
+output: html_document
+---
+
+---
+title: "RMBL_NICHE_v4"
+author: "Beth Morrison"
+date: "4/2/2020"
+output: html_document
+---
+
+# Libraries
+
+```{r}
+
+library(vegan)
+library(bipartite)
+library(stringr)
+library(iNEXT)
+library(vegan)
+library(spaa)
+
+```
+
+# Data
+
+Interaction observations
+
+```{r}
+
+raw.ds <- read.csv(file = "KCAqnest_network_observations_RMBL_2019_RAW.csv", head = T, stringsAsFactors = F)
+
+```
+
+Bloom observations
+
+```{r}
+
+t1 <- read.csv(file = "qnest_plant_RMBL_2019_RAW.csv", head = T)
+t2 <- read.csv(file = "qnest_plant_RMBL_2017_RAW.csv", head = T)
+t3 <- read.csv(file = "qnest_plants_RMBL_2016_RAW.csv", head = T)
+
+t1 <- t1[ ,c(1:6)]
+t2 <- t2[ ,c(1:6)]
+t3 <- t3[ ,c(1:6)]
+
+colnames(t1) ## date site transect segment plant total_flowers
+colnames(t2) ## date site transect segment plant_name total_flowers
+colnames(t3) ## date site transect segment plant_name total_flowers
+
+colnames(t1)[5] <- 'plant_name'
+
+t2 <- t2[which(t2$site != ""), ]
+length(unique(t2$site))
+
+raw.bloom.ds <- rbind(t3, t2, t1)
+
+raw.bloom.ds$site <- droplevels(raw.bloom.ds$site)
+
+```
+
+## Interaction observations data cleaning
+
+Checking for weird data and typos
+
+```{r}
+
+table(raw.ds$date) ## some are lower than I would think, but is that intentional? hard to say... 
+table(raw.ds$site) ## G0thic Town
+table(raw.ds$who) ## don't really care I guess
+table(raw.ds$transect) ## p4 and p6 have only one, some are blank
+table(raw.ds$segment) ## looks good
+table(raw.ds$vial_number) ## lots, do I care?
+table(raw.ds$gross_ID) ## two blank, thrip? should include? Unknown? should remove, should also group the bombus, no? Given the coarse levels for other groups, bombyliidae and bombilidae, Other Fly and Other fly , Big megachile and Big Megachile
+table(raw.ds$plant) ## four blank, Hymenoxys hoopesii, HYmenoxys hoopesii
+table(raw.ds$em_morpho) ## not sure if i need this information
+table(raw.ds$fine_ID) ## 7778 blank!
+
+```
+
+Updating weird data and typos
+
+```{r}
+
+raw.ds1 <- raw.ds
+
+raw.ds1$site[which(raw.ds1$site == 'GOthic Town')] <- 'Gothic Town'
+# raw.ds1$site <- droplevels(raw.ds1$site)
+
+raw.ds1 <- raw.ds1[which(raw.ds1$gross_ID != ""), ]
+raw.ds1$gross_ID[which(raw.ds1$gross_ID == "Big Megachile")] <- 'Big megachile'
+raw.ds1$gross_ID[which(raw.ds1$gross_ID == levels(raw.ds$gross_ID)[8])] <- 'Bombyliidae'
+raw.ds1$gross_ID[which(raw.ds1$gross_ID == "Other Fly")] <- 'Other fly'
+raw.ds1$gross_ID[which(raw.ds1$gross_ID == "Other fly ")] <- 'Other fly'
+raw.ds1 <- raw.ds1[which(raw.ds1$gross_ID != "Thrip"), ]
+raw.ds1 <- raw.ds1[which(raw.ds1$gross_ID != "Unknown"), ]
+#raw.ds1$gross_ID <- droplevels(raw.ds1$gross_ID)
+
+raw.ds1 <- raw.ds1[which(raw.ds1$plant != ""), ]
+raw.ds1$plant[which(raw.ds1$plant == "HYmenoxys hoopesii")] <- "Hymenoxys hoopesii"
+#raw.ds1$plant <- droplevels(raw.ds1$plant)
+
+table(raw.ds1$site) ## looks good
+table(raw.ds1$gross_ID) ## looks good
+table(raw.ds1$plant) ## looks good too
+
+raw.ds1$betterdate <- as.Date(raw.ds1$date, format = "%m/%d/%y")
+
+nrow(raw.ds1) # 8097 interactions
+
+colnames(raw.ds1)
+unique(raw.ds1$betterdate) ## 4 years
+
+```
+
+This is kind of an aside but I pull out all the interactions that just include bombus, incase you ever wanted to look at Bombus exclusively, since currently the bombus data are the most well resolved
+
+```{r}
+
+## still need to group all of the Bombus
+
+raw.ds1$gross_ID <- as.character(raw.ds1$gross_ID)
+raw.ds1$gross_ID[which(str_detect(raw.ds1$gross_ID, "Bombus"))] <- "Bombus"
+table(raw.ds1$gross_ID) ## okay now all the bombus are one
+
+bombus.ds <- raw.ds[which(str_detect(raw.ds$gross_ID, "Bombus")), ]
+#bombus.ds$gross_ID <- droplevels(bombus.ds$gross_ID)
+bombus.ds$gross_ID <- as.character(bombus.ds$gross_ID)
+bombus.ds <- bombus.ds[which(bombus.ds$plant != ''), ]
+#bombus.ds$plant <- droplevels(bombus.ds$plant)
+#bombus.ds$site <- droplevels(bombus.ds$site)
+bombus.ds$betterdate <- as.Date(bombus.ds$date, format = "%m/%d/%y")
+
+```
+
+## Bloom data cleaning
+
+Looking for weird data and typos
+
+```{r}
+
+table(raw.bloom.ds$date) ## dates look good
+table(raw.bloom.ds$site) ## good 
+table(raw.bloom.ds$transect) ## some blanks to remove
+table(raw.bloom.ds$segment) ## also look good as far as I can tell
+sort(names(table(raw.bloom.ds$plant))) ##  
+table(raw.bloom.ds$total_flowers) ## nothing immediately shocking but we shall see
+
+```
+
+Fixing weird data and typos
+
+```{r}
+
+raw.bloom.ds$plant <- as.character(raw.bloom.ds$plant)
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$transect != ""), ]
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == "Agoseris  glauca")] <- "Agoseris glauca"
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != "Antemeria White"), ]
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != ""), ]
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == "Aquilegia coerulea")] <- "Aquilegia caerulea"
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != "Arnica? "), ]
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != "Big Yellow Bushy Flowers"), ]
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == "Potentilla gracilis")] <- "Potentilla pulcherrima"
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Bochera stricta')] <- 'Boechera stricta'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Fringed brassica ')] <- 'Fringed Brassica'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'lathyrus leucanthus')] <- 'Lathyrus leucanthus'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Fringed brassica ')] <- 'Fringed Brassica'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Linum Lewisii')] <- 'Linum lewisii'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'LInum lewisii')] <- 'Linum lewisii'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Mertensia ciliata ')] <- 'Mertensia ciliata'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'penstemon whippleanus')] <- 'Penstemon whippleanus'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Potentilla fruiticosa')] <- 'Potentilla fruticosa'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Erigeron speciosa')] <- 'Erigeron speciosus'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Erigeron speciosus ')] <- 'Erigeron speciosus'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'potentilla pulcherrima')] <- 'Potentilla pulcherrima'
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != 'Snap Dragon Ask Loy!'), ] 
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != 'Thistle (Need ID)'), ] 
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'viola praemorsa')] <- 'Viola praemorsa'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Viccia americana')] <- 'Vicia americana'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Taraxacum officinale*')] <- 'Taraxacum officinale'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Thin yellow Brassica ')] <- 'Thin yellow Brassica'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'thin yellow Brassica ')] <- 'Thin yellow Brassica'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Viola  adunca')] <- 'Viola adunca'
+raw.bloom.ds$plant[which(raw.bloom.ds$plant == 'Viola  praemorsa')] <- 'Viola praemorsa'
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != 'White aster'), ] 
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != 'Unknown'), ] 
+raw.bloom.ds <- raw.bloom.ds[which(raw.bloom.ds$plant != '"Wallflower"'), ] 
+
+raw.bloom.ds$betterdate <- as.Date(raw.bloom.ds$date, format = "%m/%d/%y")
+
+```
+
+## Organizing the interaction observation data
+
+Creating an interaction matrix for each site and date
+Creates a list of lists, each element of the outer list is a site, each element of the inner list is a date
+
+```{r}
+
+## split up the sites 
+split.sites <- split(raw.ds1, f = raw.ds1$site)
+
+## frame to web function with some pre-emptive data cleaning built in 
+f2w.fun <- function(df) {
+  df$site_date <- paste(df$site, df$betterdate, sep = "//")
+  df$freq <- rep(1, nrow(df))
+  df2 <- df[ ,c('plant', 'gross_ID', 'site_date', 'freq')]
+  colnames(df2) <- c('lower', 'higher', 'webID', 'freq')
+  return(frame2webs(df2))
+}
+
+all.webs <- lapply(split.sites, f2w.fun)
+
+lapply(all.webs, length) ## 25 27 22
+
+all.webs.deg <- lapply(all.webs, function(list) {lapply(list, specieslevel, index = 'degree', level = 'lower')})
+all.webs.intxn <- lapply(all.webs, function(list) {lapply(list, rowSums)})
+
+names(all.webs.intxn[[1]]) ## now they should be in chronological order
+
+```
+
+## Organizing the bloom data 
+
+One data frame per site and date
+Creates a list of lists, each element of the outer list is a site, each element of the inner list is a date
+
+```{r}
+
+split.bloom <- split(raw.bloom.ds, raw.bloom.ds$site)
+all.blooms <- lapply(split.bloom, function(df) {split(df, df$betterdate)})
+
+```
+
+Now the `all.blooms` object and the `all.webs` object should have the same dimensions: 
+1) outer list 3 elements long -one per site
+2) Inner lists - 25, 27, 22 elements long (in that order) - one per sampling date
+
+A quick check to see that all sampling dates match up between the bloom and the interaction data
+
+```{r}
+
+## create a 'not in' function
+'%!in%' <- function(x,y)!('%in%'(x,y)) 
+
+sum(split.sites[[1]]$betterdate %!in% split.bloom[[1]]$betterdate) ## no dates missing overall
+sum(split.sites[[2]]$betterdate %!in% split.bloom[[2]]$betterdate) ## no dates missing overall
+sum(split.sites[[3]]$betterdate %!in% split.bloom[[3]]$betterdate) ## no dates missing overall
+
+```
+
+NEED TO
+Do a check for problematic data mismatches between the two datasets
+Problem: flower recorded in the interaction dataset but not recorded in the bloom dataset
+A flower recorded in the bloom dataset and not in the interaction dataset may very well be an error, but we can never tell from these datasets alone
+
+# Analysis
+
+*Q1: What is the relationship between estimated visitor richness and bloom abundance?*
+*Q2: What is the relationship between total number of visitors and bloom abundance? *
+*Q3: What is the relationship between interaction partner specificity (of the polls) and bloom abundance? *
+
+The data we will need to answer the above three questions: 
+1) Observed visitor richness for each plant species at each site_date combo
+2) Estimated visitor richness for each plant species at each site_date combo 
+3) Number of observed interactions for each plant species at each site_date combo
+4) The ecological overlap (i.e. dissimilarity) in interaction partners among plant species at each site_date combo
+3) The "bloom abundance" which can be measured as 
+  - the total number of flowering units
+  - the proportional number of flowering units
+  - the difference between the proportional number of flowering units and the number expected if all flowering units were distributed evenly amongst plant species (a measure of "dominance", if you will).
+  
+## Let's start with observed and estimated visitor richness
+
+```{r}
+
+## one note about iNEXT which are are using for visitor richness estimation is that it does not like species that only have a single observation (because there are too few observations to make any sort of extrapolation). So, for every plant species that only has one interaction observation it will throw a warning that says "Estimation is not robust" and the estimated value of visitor richness is the same as the observed value of visitor richness (so, it's 1)
+
+## uses the iNEXT function to rarefy the number of expected flower visitors for each plant species on each site and date
+## the function works row by row
+all.ests <- lapply(all.webs, function(list) {lapply(list, function(df) {apply(df, 1, function(row) {t1 <- iNEXT(row, q = 0, datatype = 'abundance')
+  return(t1$AsyEst[1, ])})})}) ## you can get a large output from iNEXT but we are only interested in the "AsyEst" i.e. the asymptotic diversity estimates 
+
+## just doing some data organizing such that each estimate has affixed plant species names associated with it in their own column (this will be used for merging with other data later)
+all.ests <- lapply(all.ests, function(list) {lapply(list, function(df) {t1 <- data.frame(t(df))
+  t1$species <- rownames(t1)
+  return(t1)})})
+
+```
+
+The data in `all.ests` is in the same format as the data in `all.webs` and `all.blooms`
+
+## Number of interactions (total) for each plant species
+
+First the total number of interactions per plant species
+
+This calculates how many flower visitors each plant species was able to even attract (regardless of species) and the proportional number of interactions per plant species (i.e. # intxns plant species A / # intxns at the site overall)
+
+The idea of this proportional calculation is that there were only so many visitors each site to be "attracted" so the proportion represents how many of the total available visitors each plant species was able to attract
+
+```{r}
+
+## simply the rowSums of each interaction web
+obs.intxns <- lapply(all.webs, function(list) {lapply(list, function(df) {data.frame(species = rownames(df) , intxns = rowSums(df), p.intxns = rowSums(df)/(sum(rowSums(df))))})})
+
+```
+
+We can now combine the data about the visitor richness estimates with the data about total interaction observations into a new object called `all.info` that we will keep adding information to about our plant species and their interactions and blooms
+
+```{r}
+
+## a function for combining two datasets that both have the common column 'species'
+combo.fun <- function(x,y) {df <- merge(x, y, by.y = 'species', by.x = 'species', all = T)
+  df[is.na(df)] <- 0
+  return(df)}
+
+all.info <- mapply(function(z, y) {mapply(combo.fun, z, y, SIMPLIFY = F)}, all.ests, obs.intxns)
+
+```
+
+## The dissimilarity of flower visitors for each plant species
+
+The idea here is that if you have more flowers blooming you might not only attract more visitors, and a greater diversity of visitors, but those visitors may actually be more specialized on you.
+
+visitor dissimilarity will measure how many flower visitors you share with other species in the network and in what proportion
+
+And this is just a note to me since I can never remember...
+
+A dissimilarity value of 1 is that they share all the same species 
+A dissimilarity value of 0 means they have no species in common
+
+```{r}
+
+## The first step is to create a dissimilarity matrix for each site_date combo. This will measure the dissimilarity of flower visitors between each plant species pair at that site_date. I used the Chao dissimilarity metric here, which is based off of the Jaccard dissimilarity, because the Chao metrix tries to take into account the number of unseen species pairs
+aw.dists <- lapply(all.webs, function(list) {lapply(list, function(df) {temp <- vegdist(df, method = 'chao')
+  temp2 <- dist2list(temp) ## dist2list function turns the dissimlarity matrix into a dataframe which is very handy
+  return(temp2)})})
+
+## but actually, it doesn't really matter what the similarity is between every species pair (i mean at least, not in this moment). What matters is how unique your flower visitors were to you as a single species period. Meaning what is the dissimilarity between your flower visitors and the flower visitors that visited ALL the plant species in the rest of the community. So the function below compares the flower visitors of plant species i to the flower visitor on all plants in the community except i. Therefor, each plant species at each site_date combo receives one dissimilarity value. 
+## I can't say it's a beautiful function and I could probably clean it up but it works. 
+
+aw.tot.sims <- lapply(all.webs, function(list) {lapply(list, function(df) {temp2 <- list()
+  for(i in 1:nrow(df)) {
+    one <- df[i, ]
+    if(ncol(df)>2) {
+    two <- colSums(df[-i, ]) ## treat all the of the plant species except for i as a single plant species and sum up their total floral visitors 
+    }
+    else {two <- sum(df[-i, ])} ## this if then is just for some data technicalities for small webs at some site_date combos
+    three <- rbind(one, two)
+    rownames(three) <- c(rownames(df)[i], 'total')
+    four <- vegdist(three, method = 'chao') ## then calculate the chao dissimilarity between species i and all the species but i
+    temp2[[i]] <- four
+  }
+  temp3 <- do.call(rbind, temp2)
+  rownames(temp3) <- rownames(df)
+  temp4 <- data.frame(species = rownames(temp3), sim = temp3, stringsAsFactors = F) ## then just do some formatting
+  })})
+
+## so kinda weird but as an example you can see
+aw.tot.sims[[1]][[1]] ## one dissimilarity value per plant species at each site_date combo
+## this object also has the same structure as the other objects we have made so we can now merge them in the next step.
+
+```
+
+I don't find the dissimilarity metric to be particularly intuitive when it's plotted so I am going to reverse it where 1 represents no overlap and 0 represents perfect overlap
+
+```{r}
+
+aw.tot.sims <- lapply(aw.tot.sims, function(list) {lapply(list, function(df) {df2 = df
+  df2$sim = 1-df2$sim
+  return(df2)})})
+
+```
+
+Now we can merge our dissimilarity metrics with the rest of our plant data info
+
+```{r}
+
+all.info <- mapply(function(z, y) {mapply(combo.fun, z, y, SIMPLIFY = F)}, all.info, aw.tot.sims)
+
+```
+
+Alright we have visitor richness info, total visitor info, and visitor dissimilarity info. That's all the data we need from the interaction matrices. Now we can turn to the bloom dataset to get information about bloom abundance for each plant species at each site. 
+
+### Species strength
+
+One more metric that can represent the importance of a plant species to the network, perhaps better than number of visitors alone, is species strength. So we'll calculate species strength for each plant species as well
+
+```{r}
+
+## calculate the species level metrics of choice
+aw.ss <- lapply(all.webs, function(list) {lapply(list, specieslevel, index = 'species strength', level = 'lower')})
+
+aw.ss[[1]][[1]] ## cool looks good
+
+```
+
+Now we want to add that information to the `all.info` dataframe as we have done before
+
+```{r}
+
+## add the species names as a column to our aw.sl dataframes
+aw.ss <- lapply(aw.ss, function(list) {lapply(list, function(df) {df$species <- rownames(df)
+  rownames(df) <- NULL
+  return(df)})})
+
+```
+
+```{r}
+
+## merge them with the all.info dataframes
+all.info <- mapply(function(z, y) {mapply(combo.fun, z, y, SIMPLIFY = F)}, all.info, aw.ss)
+
+```
+
+
+## Bloom abundance measures
+
+Remember we have three ways of measuring bloom abundance: 
+- number of flowering units total (abundance)
+- proportion of flower units (given all the flowering units at the site, i.e. the relative abundance)
+- and a new method called 'dominance' that is definitely imperfect that combines the proportional. This measures the departure of the observed relative abundance from the relative abundance if all of the flowering units were distributed across all plant species equally. 
+
+Starting with simple abundance of flowering units
+
+First I want to get my bloom data, which are currently in longform, into wide format, so here's a function to do that...
+
+```{r}
+
+library(tidyr)
+
+long_to_wide <- function(df) {
+  temp <- df ## unnecessary but just saving a temp object inside function
+  site_date <- paste(temp[1, 'site'], temp[1, 'betterdate'], sep = '//') ## the site and date identifier for the site
+  temp2 <- aggregate(total_flowers~plant, temp, FUN = sum) ## add up all the observations of bloom coutns for each plant species at that site on that date
+  temp2$site_date <- rep(site_date, nrow(temp2)) ## add that new information to the aggregated dataframe
+  temp3 <- spread(temp2, plant, total_flowers) ## now turn it into a wide form data frame where each column is a plant species the cell values are the counts of the blooms
+  rownames(temp3) <- temp3[ ,1] ## remove the name value so dataframe is all numeric
+  temp3 <- temp3[ ,-1]
+  return(temp3) ## return the one row data frame
+}
+
+```
+
+### Total bloom abundance
+
+Then I convert my long `all.blooms` data into a wide `all.blooms.wide` object
+
+```{r}
+
+all.blooms.wide <- lapply(all.blooms, function(list) {lapply(list, long_to_wide)}) ## these should be single row data frames for each site and date of sampling
+
+```
+
+And in the wide data format these data will be easier to work with later but also, converting them into wide data format we also calculated the number of observed blooms per species - how handy! 
+
+See for example
+
+```{r}
+
+all.blooms.wide[[1]][[1]]
+
+```
+
+But the wide format data need to be transposed before adding to our current dataframe `all.info` so let's change go ahead and transpose
+
+```{r}
+
+all.bloom.ab <- lapply(all.blooms.wide, function(list) {lapply(list, function(df) {df2 = data.frame(t(df))
+  df2$species <- rownames(df2)
+  colnames(df2)[1] <- 'bloom.ab'
+  return(df2)})})
+
+```
+
+```{r}
+
+all.info <- mapply(function(z, y) {mapply(combo.fun, z, y, SIMPLIFY = F)}, all.info, all.bloom.ab)
+
+```
+
+### Proportional bloom abundance
+
+Now I can get to calculating the number of proportional blooms per site
+
+```{r}
+
+## to get the observed proportion of each species' bloom on each day and site
+prop.fun <- function(z) {sapply(z, function(x) {x/sum(z)})}
+
+obs.props <- lapply(all.blooms.wide, function(list) {lapply(list, prop.fun)})
+
+```
+
+
+```{r}
+
+## format to add to our total dataset in all.info
+
+obs.props2 <- lapply(obs.props, function(list) {lapply(list, function(vec) {data.frame(species = names(vec), bloom.prop = vec)})})
+
+```
+
+```{r}
+
+all.info <- mapply(function(z, y) {mapply(combo.fun, z, y, SIMPLIFY = F)}, all.info, obs.props2)
+
+```
+
+### Bloom "dominance"
+
+My goal was to create some sort of measurement that included the proportion of blooms for each species at each site but ALSO the "dominance" of each bloom at each site. The reasoning being that it's not only the representation of a plant species bloom at a site that matters, but also the representation of that plant species' bloom in relation to the other blooms available at the site.
+
+For example, if sp. A has 0.50 of the blooms at a site is quite a high proportion of blooms. But that proportion might be different to pollinators if there is only one other species at the site versus if there are 100 other species at the site. In the low diversity scenario, the high proportion might not mean as much because sp. A is just as dominant as its fellow plant species. But in the latter, high diversity scenario, sp. A must actually have the most "dominant" bloom since none of the other 100 flowering plant species could also have 0.50 of the blooms. 
+
+So a way to incorporate the "dominance" would be to include some measure of evenness into the proportional bloom measurement. That way, if the proportions of blooms across the species across the site are really evenly distributed, then none of the plant species are that dominant (like in the low diversity scenario). But if the distribution of blooms is really uneven, then the species with the highest proportion of blooms will be skewing the evenness and therefore really "dominant" at the site. 
+
+I don't really know the best way to do this, and I toyed with a bunch of ideas, but a simple one is measuring the difference between the observed proportion of blooms for each plant species and the proportion of blooms expected if the blooms were perfectly even across all species at the site
+
+Thus you have
+
+Delta bloom proportion = observed bloom proportion - completely even bloom proportion
+
+And if you get a positive delta bloom, the plant species is more dominant since it has a higher proportion of blooms than completely even, and if it has a negative value it isn't veyr dominant since it has a lower proportion of blooms than it would if it were even, and if it has a value close to zero it's got a bloom representation close to what it would have if the blooms were evenly distributed
+
+Using this calculation, in the low diversity scenario sp. A would get a delta bloom score of 0 which correctly identifies that while it has a high proportion of the blooms, that high proportion is not dominant (and perhaps less important to pollinators) because has the same proportion of blooms as its fellow plant species. On the other hand, in the high diversity scenario sp. A should get a very high delta bloom value correctly representing that not only does that species have a high proportion of the blooms but it is also more dominant than any of the other blooms in the community. 
+
+Okay maybe that makes sense. 
+
+So in order to calculate the delta bloom first you need the perfectly even proportional bloom expected for each day and site 
+
+```{r}
+
+even.prop.fun <- function(z) {(sum(z)/length(z))/sum(z)}
+
+even.props <- lapply(all.blooms.wide, function(list) {lapply(list, even.prop.fun)})
+
+```
+
+and now we need the delta between the observed and even proportions so we're going to calculate that as
+obs.props - even.props = delta.props
+
+```{r}
+
+delta.props <- mapply(function(z, y) {mapply(function(a, b) {a-b}, z, y, SIMPLIFY = F)}, obs.props, even.props)
+
+## format the data
+delta.props <- lapply(delta.props, function(list) {lapply(list, function(vec) {data.frame(species = names(vec), delta.prop = vec)})})
+
+```
+
+```{r}
+
+## add it to our dataset
+all.info <- mapply(function(z, y) {mapply(combo.fun, z, y, SIMPLIFY = F)}, all.info, delta.props) 
+
+```
+
+And phew I think that's all the data that we need to work with (at least for now...)
+
+Now our all.info dataframe has all of the information in it that we need to continue our analysis. 
+
+But what do we want to look at ...
+
+I guess we can make some plots. I'll focus on dominance because it's a new metric and the one that contains the most information (though it's obviously likely highly correlated with the other measures of bloom abundance so overall patterns across all thre bloom abundance metrics are likely very similar)
+
+### Estimated visitor richness vs. dominance
+
+We'll pool the observations across dates for each site, and plot the info per site separately
+
+```{r}
+
+all.info2 <- lapply(all.info, function(list) {do.call(rbind, list)})
+
+## add identifying site information in this kind of janky way
+for(i in 1:length(all.info2)) {
+  all.info2[[i]]$Site <- rep(names(all.info2)[i], nrow(all.info2[[i]]))
+}
+
+all.info3 <- do.call(rbind, all.info2)
+
+```
+
+Estimated visitor richness vs. dominance
+
+```{r}
+
+library(ggplot2)
+
+ggplot(all.info3, aes(x = delta.prop, y = Estimator, color = Site)) +
+  geom_point() +  
+  ylab("Est. Visitor Richness") +
+  xlab("Bloom Dominance") +
+  theme_classic() +
+  facet_wrap(~Site, scales = 'free') 
+
+```
+
+Proportional number of total visits vs. dominance
+
+```{r}
+
+ggplot(all.info3, aes(x = delta.prop, y = p.intxns, color = Site)) +
+  geom_point() +  
+  ylab("Proportion of Total Interactions") +
+  xlab("Bloom Dominance") +
+  theme_classic() +
+  facet_wrap(~Site, scales = 'free') 
+
+```
+
+Dissimilarity of interaction partners vs. dominance
+
+```{r}
+
+ggplot(all.info3, aes(x = delta.prop, y = sim, color = Site)) +
+  geom_point() +  
+  ylab("Interaction Partner Similarity") +
+  xlab("Bloom Dominance") +
+  theme_classic() +
+  facet_wrap(~Site, scales = 'free') 
+
+```
+
+Okay those look terrible -- but might look better once the pollinator data is more resolveds
+
+Species strength vs. dominance
+
+```{r}
+
+ggplot(all.info3, aes(x = delta.prop, y = species.strength, color = Site)) +
+  geom_point() +  
+  ylab("Species Strength") +
+  xlab("Bloom Dominance") +
+  theme_classic() +
+  facet_wrap(~Site, scales = 'free') 
+
+```
+
+There's one thing that I kind of feel like can be taken out and that's the plants that had no interactions. I know it's kind of weird because if it had a bloom and no interactions then that's data but I guess they're not important to the network? I don't know... 
+
+Remove the species that had no interactions 
+
+```{r}
+
+all.info4 <- all.info3[which(all.info3$Observed != 0), ]
+
+```
+
+Estimated visitor richness vs. dominance
+
+```{r}
+
+ggplot(all.info4, aes(x = delta.prop, y = Estimator, color = Site)) +
+  geom_point() +  
+  ylab("Est. Visitor Richness") +
+  xlab("Bloom Dominance") +
+  theme_classic() +
+  facet_wrap(~Site, scales = 'free') 
+
+```
+
+Proportional number of total visits vs. dominance
+
+```{r}
+
+ggplot(all.info4, aes(x = delta.prop, y = p.intxns, color = Site)) +
+  geom_point() +  
+  ylab("Proportion of Total Interactions") +
+  xlab("Bloom Dominance") +
+  theme_classic() +
+  facet_wrap(~Site, scales = 'free') 
+
+```
+
+Dissimilarity of interaction partners vs. dominance
+
+```{r}
+
+ggplot(all.info4, aes(x = delta.prop, y = sim, color = Site)) +
+  geom_point() +  
+  ylab("Interaction Partner Similarity") +
+  xlab("Bloom Dominance") +
+  theme_classic() +
+  facet_wrap(~Site, scales = 'free') 
+
+```
+
+Species strength vs. dominance
+
+```{r}
+
+ggplot(all.info4, aes(x = delta.prop, y = species.strength, color = Site)) +
+  geom_point() +  
+  ylab("Species Strength") +
+  xlab("Bloom Dominance") +
+  theme_classic() +
+  facet_wrap(~Site, scales = 'free') 
+
+```
+
+## Top Species
+
+Okay that was looking at all the species at once, but what if I want to look at the top species? Because most species are rare, and therefor hard to say for sure how many partners they really have. So let's pick the top three most dominant blooming species from each site (based on number of blooms alone, at first). 
+
+Pull out the top three blooms
+
+```{r}
+
+## here you want to work with the all.blooms.wide data
+
+## function to pick the top three most abundant blooms at the site on that date and time (using the all.blooms.wide dataframes)
+top.three.fun <- function(df) {
+  df[order(as.integer(df), decreasing = T)][1:3]
+}
+
+## extract the top three blooms for each site_date combo
+top.three.blooms <- lapply(all.blooms.wide, function(list) {lapply(list, top.three.fun)})
+
+```
+
+We have the top three blooms from each site and data combo and now we need the rest of the information for those plant species, which we can get from all.info
+
+```{r}
+
+names(top.three.blooms[[1]][[1]])
+
+top.three.pick <- function(x, y) {t3n <- names(x)
+  new.y <- y[which(y$species %in% t3n), ]
+  return(new.y)}
+
+## now is the information for the species of interest only
+t3.info <- mapply(function(z, y) {mapply(top.three.pick, z, y, SIMPLIFY = F)}, top.three.blooms, all.info)
+
+```
+
+And we can make the same graphs with these more bloom dominant species
+
+But first join the different dates together within each site
+
+We'll pool the observations across dates for each site, and plot the info per site separately
+
+```{r}
+
+t3.info2 <- lapply(t3.info, function(list) {do.call(rbind, list)})
+
+## add identifying site information in this kind of janky way
+for(i in 1:length(t3.info2)) {
+  t3.info2[[i]]$Site <- rep(names(t3.info2)[i], nrow(t3.info2[[i]]))
+}
+
+t3.info3 <- do.call(rbind, t3.info2)
+
+```
+
+Estimated visitor richness vs. dominance
+
+```{r}
+
+ggplot(t3.info3, aes(x = delta.prop, y = Estimator, color = Site)) +
+  geom_point() +  
+  ylab("Est. Visitor Richness") +
+  xlab("Bloom Dominance") +
+  theme_classic() +
+  facet_wrap(~Site, scales = 'free') 
+
+```
+
+Proportional number of total visits vs. dominance
+
+```{r}
+
+ggplot(t3.info3, aes(x = delta.prop, y = p.intxns, color = Site)) +
+  geom_point() +  
+  ylab("Proportion of Total Interactions") +
+  xlab("Bloom Dominance") +
+  theme_classic() +
+  facet_wrap(~Site, scales = 'free') 
+
+```
+
+Dissimilarity of interaction partners vs. dominance
+
+```{r}
+
+ggplot(t3.info3, aes(x = delta.prop, y = sim, color = Site)) +
+  geom_point() +  
+  ylab("Interaction Partner Similarity") +
+  xlab("Bloom Dominance") +
+  theme_classic() +
+  facet_wrap(~Site, scales = 'free') 
+
+```
+
+Dissimilarity of interaction partners vs. dominance
+
+```{r}
+
+ggplot(t3.info3, aes(x = delta.prop, y = species.strength, color = Site)) +
+  geom_point() +  
+  ylab("Species Strength") +
+  xlab("Bloom Dominance") +
+  theme_classic() +
+  facet_wrap(~Site, scales = 'free') 
+
+```
